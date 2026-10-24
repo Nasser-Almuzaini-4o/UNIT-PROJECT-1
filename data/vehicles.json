@@ -1,0 +1,16 @@
+{
+  "vehicles": [
+    {
+      "plate": "2214KRS",
+      "owner": {
+        "name": "nasser",
+        "phone": "0596244299"
+      },
+      "make": "ford",
+      "model": "v",
+      "year": 2011,
+      "mileage": 200000,
+      "services": []
+    }
+  ]
+}

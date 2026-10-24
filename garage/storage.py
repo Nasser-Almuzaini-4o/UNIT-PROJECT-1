@@ -1,57 +1,90 @@
+"""Reading and writing JSON files (the "database" of the garage)."""
+
+from __future__ import annotations
+
 import json
 import os
-import shutil
+import tempfile
+import time
 from pathlib import Path
+from typing import Any
 
-DATA_FILE = Path(__file__).resolve().parent.parent / "data" / "vehicles.json"
+
+class StorageError(Exception):
+    """Raised when a data file cannot be read, parsed or written."""
 
 
-def load_data(path=DATA_FILE):
+class JsonStorage:
+    """Safe read/write access to a single JSON file.
+
+    Writes are atomic: the data goes to a temporary file first and then
+    replaces the real file, so a crash can never leave a half-written file.
     """
-   Reads all data from a JSON file and returns it as a dictionary.
-    """
-    path = Path(path)
-    if not path.exists():
-        return {}
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            raise ValueError("JSON root must be an object")
-        return data
-    except ValueError:  
-        backup = path.with_name(path.name + ".bak")
-        shutil.copy(path, backup)
-        print(f"Warning: {path.name} is corrupted. Backup saved as {backup.name}.")
-        return {}
+
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
+
+    def read(self, default: Any = None) -> Any:
+        """Return the parsed JSON, or ``default`` if the file is missing/empty."""
+        if not self.path.exists():
+            return default
+        try:
+            text = self.path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise StorageError(f"Cannot read {self.path.name}: {exc}") from exc
+        if not text.strip():
+            return default
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise StorageError(
+                f"{self.path.name} is corrupted ({exc.msg}, line {exc.lineno})."
+            ) from exc
+
+    def write(self, data: Any) -> None:
+        """Atomically write ``data`` as pretty JSON (Arabic text stays readable)."""
+        tmp_name: str | None = None
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            fd, tmp_name = tempfile.mkstemp(
+                dir=self.path.parent, prefix=f"{self.path.name}.", suffix=".tmp"
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(data, handle, ensure_ascii=False, indent=2)
+            os.replace(tmp_name, self.path)
+            tmp_name = None
+        except (OSError, TypeError, ValueError) as exc:
+            raise StorageError(f"Cannot write {self.path.name}: {exc}") from exc
+        finally:
+            if tmp_name is not None:
+                Path(tmp_name).unlink(missing_ok=True)
+
+    def backup_corrupted(self) -> Path | None:
+        """Move a corrupted file aside (``*.corrupt``) and return the new path."""
+        if not self.path.exists():
+            return None
+        backup = self.path.with_name(self.path.name + ".corrupt")
+        if backup.exists():
+            backup = self.path.with_name(f"{self.path.name}.{int(time.time())}.corrupt")
+        try:
+            self.path.replace(backup)
+        except OSError as exc:
+            raise StorageError(f"Cannot back up {self.path.name}: {exc}") from exc
+        return backup
 
 
-def save_data(data, path=DATA_FILE):
-    """
-     Writes all data to a JSON file.
-     We first write to a temporary file and then replace the original,
-     ensuring the file does not become corrupted if the program stops during the writing process.
-    """
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, path)
+class VehicleStorage(JsonStorage):
+    """JSON storage shaped like ``{"vehicles": [ {...}, {...} ]}``."""
 
+    ROOT_KEY = "vehicles"
 
-def find_vehicle(plate, path=DATA_FILE):
-    """Searches for a vehicle by its license plate number."""
-    return load_data(path).get(plate)
+    def load_vehicles(self) -> list[dict[str, Any]]:
+        data = self.read(default={self.ROOT_KEY: []})
+        if not isinstance(data, dict) or not isinstance(data.get(self.ROOT_KEY), list):
+            raise StorageError(
+                f"{self.path.name} is corrupted (expected a '{self.ROOT_KEY}' list)."
+            )
+        return data[self.ROOT_KEY]
 
-
-def save_vehicle(vehicle, path=DATA_FILE):
-    """Adds a new vehicle or updates an existing one (based on the license plate number), then saves the file."""
-    data = load_data(path)
-    data[vehicle["plate"]] = vehicle
-    save_data(data, path)
-
-
-def get_all_vehicles(path=DATA_FILE):
-    """Returns all stored cars (dictionary: license plate -> car)."""
-    return load_data(path)
+    def save_vehicles(self, vehicles: list[dict[str, Any]]) -> None:
+        self.write({self.ROOT_KEY: vehicles})
