@@ -11,6 +11,8 @@ from typing import Any, Callable
 
 from garage.plate_reader import PlateCleaner
 from garage.storage import StorageError, VehicleStorage
+import unicodedata
+
 
 
 # --------------------------------------------------------------------------- #
@@ -71,12 +73,26 @@ class Validator:
         return cleaned
 
     @staticmethod
+    def person_name(value: Any, label: str = "Name", max_length: int = 60) -> str:
+        """Letters (Arabic/English) and spaces only: digits and symbols are rejected."""
+        cleaned = Validator.text(value, label, max_length)
+        for ch in cleaned:
+            is_mark = unicodedata.category(ch).startswith("M")  
+            if not (ch.isalpha() or ch == " " or ch in "-'." or is_mark):
+                raise ValidationError(f"{label} must contain letters only (no numbers).")
+        if sum(ch.isalpha() for ch in cleaned) < 2:
+            raise ValidationError(f"{label} is too short.")
+        return cleaned
+
+    @staticmethod
     def phone(value: Any) -> str:
+        """Saudi mobile number: exactly 10 digits, starting with 05."""
         text = PlateCleaner.to_latin_digits(str(value)).strip()
         text = re.sub(r"[\s\-().]", "", text)
-        if not re.fullmatch(r"\+?\d{7,15}", text):
-            raise ValidationError("Phone must have 7-15 digits (a leading + is allowed).")
+        if not re.fullmatch(r"05\d{8}", text):
+            raise ValidationError("Phone must be exactly 10 digits and start with 05.")
         return text
+
 
     @classmethod
     def year(cls, value: Any, today: date | None = None) -> int:
@@ -90,14 +106,20 @@ class Validator:
         return year
 
     @classmethod
-    def mileage(cls, value: Any) -> int:
+    def mileage(cls, value: Any, minimum: int = 0) -> int:
+        """Whole km. ``minimum`` is the lowest allowed value (the car's current mileage)."""
         text = cls._number_text(value)
         if not re.fullmatch(r"\d+", text):
             raise ValidationError("Mileage must be a whole number of km (0 or more).")
         mileage = int(text)
         if mileage > cls.MAX_MILEAGE:
             raise ValidationError(f"Mileage cannot be more than {cls.MAX_MILEAGE:,} km.")
+        if mileage < minimum:
+            raise ValidationError(
+                f"Mileage cannot be lower than the recorded mileage ({minimum:,} km)."
+            )
         return mileage
+
 
     @classmethod
     def cost(cls, value: Any) -> float:
@@ -385,9 +407,10 @@ class GarageService:
         vehicle = Vehicle(
             plate=plate,
             owner=Owner(
-                name=Validator.text(owner_name, "Owner name"),
+                name=Validator.person_name(owner_name, "Owner name"),   
                 phone=Validator.phone(phone),
             ),
+
             make=Validator.text(make, "Make"),
             model=Validator.text(model, "Model"),
             year=Validator.year(year, self.planner.today),
@@ -419,13 +442,14 @@ class GarageService:
         record = ServiceRecord(
             service_type=service_type,
             date=Validator.service_date(service_date, self.planner.today),
-            mileage=Validator.mileage(mileage),
+            mileage=Validator.mileage(mileage, minimum=vehicle.mileage), 
             cost=Validator.cost(cost),
             notes=Validator.optional_text(notes),
         )
         old_mileage = vehicle.mileage
         vehicle.add_service(record)
-        vehicle.mileage = max(vehicle.mileage, record.mileage)
+        vehicle.mileage = record.mileage                                  
+
         try:
             self._save()
         except StorageError:
