@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Callable
 
+from rich import box
 import questionary
 from rich.console import Console
 from rich.markup import escape
@@ -42,12 +43,27 @@ class ConsoleUI:
     # Messages
     # ------------------------------------------------------------------ #
     def banner(self) -> None:
+        self.console.print()
+        self.console.print()
+        self.console.print()
+        self.console.print()
+
         self.console.print(
             Panel.fit(
-                "[bold]🚗  Garage system[/bold]\nPlate reading, service history and maintenance",
-                border_style="cyan",
+                "\n[bold yellow]   GARAGE CONTROL CENTER[/bold yellow]\nSystem is active and ready...\n",
+                title=" Garage System",
+                subtitle="Plate reading = History = Maintenance  ",
+                box=box.DOUBLE,
+                border_style="green",
+                padding=(0, 16),
             )
         )
+        self.console.print("🚗")
+
+
+
+
+
 
     def info(self, message: str) -> None:
         self.console.print(f"[cyan]ℹ[/cyan] {escape(message)}")
@@ -125,7 +141,13 @@ class ConsoleUI:
         )
 
     def ask_plate(self, default: str = "") -> str:
-        return Validator.plate(self._text("Plate number:", Validator.plate, default))
+        text = self._text(
+            "Plate number (4 digits then 3 letters, example: 8301UJB):",
+            Validator.manual_plate,
+            default,
+        )
+        return Validator.manual_plate(text)
+
 
     
     def show_plate(self, plate: str) -> None:

@@ -71,7 +71,21 @@ class Validator:
                 "letters/digits, with at least one digit."
             )
         return cleaned
-
+    
+    @staticmethod
+    def manual_plate(value: Any) -> str:
+        """Manual entry: exactly 4 digits then 3 English letters (any case), e.g. 8301UJB."""
+        text = str(value).strip()
+        if not text:
+            raise ValidationError("Enter the plate number. Example: 8301UJB")
+        if not text.isascii():
+            raise ValidationError("English letters and digits only. Example: 8301UJB")
+        if not re.fullmatch(r"[0-9]{4}[A-Za-z]{3}", text):
+            raise ValidationError(
+                "Plate must be 4 digits then 3 letters, no spaces. Example: 8301UJB"
+            )
+        return text.upper()
+    
     @staticmethod
     def person_name(value: Any, label: str = "Name", max_length: int = 60) -> str:
         """Letters (Arabic/English) and spaces only: digits and symbols are rejected."""
@@ -167,7 +181,7 @@ class ServiceRule:
 SERVICE_RULES: tuple[ServiceRule, ...] = (
     ServiceRule("Oil change", every_km=5_000, every_months=6),
     ServiceRule("Filters", every_km=10_000, every_months=12),
-    ServiceRule("Brakes", every_km=20_000),
+    ServiceRule("Brakes", every_km=50_000),
     ServiceRule("Tires", every_km=40_000),
 )
 OTHER_SERVICE = "Other"

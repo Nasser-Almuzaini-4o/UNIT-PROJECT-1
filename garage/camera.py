@@ -162,7 +162,7 @@ class CameraScanner:
 
     WINDOW = "Garage - plate scan"
     STABLE_READS = 3        # same number this many times in a row = captured
-    RESULT_TTL = 1.5        # seconds a box stays on screen after the last read
+    RESULT_TTL = 55        # seconds a box stays on screen after the last read
     NO_FRAME_TIMEOUT = 8.0  # seconds without any image before giving up
     KEY_ESC = 27
     KEYS_ACCEPT = (13, 10, 32)  # Enter, Enter, Space
